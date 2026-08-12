@@ -98,6 +98,8 @@ HEADING_SENTENCE_PATTERN = re.compile(
     r"^(?:我们|本文|本节|本阶段)|如何|为什么|为何|是否|怎么|哪些|是什么|做了什么|如何推进"
 )
 HEADING_END_PUNCTUATION = re.compile(r"[。！？!?；;：:]$")
+SUMMARY_HEADING_PATTERN = re.compile(r"^(?:总结|阶段总结|工作总结|本月工作总结|项目总结)$")
+TRAILING_HEADING_PATTERN = re.compile(r"^(?:参考文献|附录|致谢)(?:\s*[一二三四五六七八九十A-Za-z0-9].*)?$")
 MARKDOWN_TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 VAGUE_TABLE_HEADER_PATTERN = re.compile(
     r"^(?:实验)?(?:结果|表现|说明|情况|变化|结论|趋势)$|^(?:是否|有无)|^(?:提升|下降|变化)情况$"
@@ -169,6 +171,32 @@ def lint_markdown_headings(text: str) -> list[Issue]:
                     "HEADING_STYLE",
                     "章节标题包含句子、问句或写作动作。改为主题型名词短语。",
                     context_for(text, *match.span()),
+                )
+            )
+    return issues
+
+
+def lint_markdown_summary_position(text: str) -> list[Issue]:
+    issues: list[Issue] = []
+    headings = []
+    for match in re.finditer(r"(?m)^(#{2,6})[ \t]+(.+?)\s*$", text):
+        headings.append((len(match.group(1)), clean_heading(match.group(2)), match.span()))
+
+    for index, (level, heading, span) in enumerate(headings):
+        if not SUMMARY_HEADING_PATTERN.fullmatch(heading):
+            continue
+        later_sections = [
+            later_heading
+            for later_level, later_heading, _ in headings[index + 1 :]
+            if later_level <= level and not TRAILING_HEADING_PATTERN.fullmatch(later_heading)
+        ]
+        if later_sections:
+            issues.append(
+                Issue(
+                    "warning",
+                    "SUMMARY_NOT_LAST",
+                    f"总结之后仍有正文节“{later_sections[0]}”。将总结移至正文末尾、参考文献和附录之前。",
+                    context_for(text, *span),
                 )
             )
     return issues
@@ -291,6 +319,7 @@ def lint_language(text: str) -> list[Issue]:
     for match in re.finditer(r"\[待补充：[^\]]+\]", text):
         issues.append(Issue("warning", "MISSING_FIELD", "报告仍包含待补充字段。", context_for(text, *match.span())))
     issues.extend(lint_markdown_headings(text))
+    issues.extend(lint_markdown_summary_position(text))
     issues.extend(lint_markdown_table_headers(text))
     return issues
 
@@ -448,6 +477,41 @@ def check_runs(document: ET.Element) -> list[Issue]:
     return issues
 
 
+def docx_heading_level(paragraph: ET.Element) -> int | None:
+    style = w_attr(paragraph.find("w:pPr/w:pStyle", NS), "val") or ""
+    match = re.search(r"(?:Heading|标题)[ _-]?([1-6])$", style, re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def check_docx_summary_position(document: ET.Element) -> list[Issue]:
+    issues: list[Issue] = []
+    headings: list[tuple[int, str]] = []
+    for paragraph in document.iter(f"{W}p"):
+        level = docx_heading_level(paragraph)
+        if level is None:
+            continue
+        text = clean_heading("".join(node.text or "" for node in paragraph.iter(f"{W}t")))
+        headings.append((level, text))
+
+    for index, (level, heading) in enumerate(headings):
+        if not SUMMARY_HEADING_PATTERN.fullmatch(heading):
+            continue
+        later_sections = [
+            later_heading
+            for later_level, later_heading in headings[index + 1 :]
+            if later_level <= level and not TRAILING_HEADING_PATTERN.fullmatch(later_heading)
+        ]
+        if later_sections:
+            issues.append(
+                Issue(
+                    "warning",
+                    "SUMMARY_NOT_LAST",
+                    f"总结之后仍有正文节“{later_sections[0]}”。将总结移至正文末尾、参考文献和附录之前。",
+                )
+            )
+    return issues
+
+
 def border_in(parent: ET.Element, name: str, path: str) -> ET.Element | None:
     return parent.find(f"{path}/w:{name}", NS)
 
@@ -550,6 +614,7 @@ def lint_docx(parts: dict[str, ET.Element]) -> list[Issue]:
     issues = check_default_fonts(parts.get("styles"))
     issues.extend(check_page(document))
     issues.extend(check_runs(document))
+    issues.extend(check_docx_summary_position(document))
     for index, table in enumerate(document.iter(f"{W}tbl"), start=1):
         issues.extend(check_table(table, index))
     return issues
