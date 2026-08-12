@@ -74,6 +74,26 @@ SCOPE_PATTERNS = [
 ]
 
 
+META_PATTERNS = [
+    re.compile(r"推进逻辑|写作思路|组织框架|分析路径|叙述结构"),
+    re.compile(r"下文将|接下来(?:将|介绍|说明|讨论)|下面(?:将|介绍|说明|讨论)"),
+    re.compile(r"为了便于理解[^。！？；\n]{0,20}(?:先|首先)"),
+]
+
+
+DERIVED_CONTENT_PATTERN = re.compile(
+    r"(?:训练|测试|候选|样本|数据|模型)?(?:名单顺序|名单|排序结果|排名结果|分组结果|筛选结果)(?:如下|为)?"
+)
+GENERATION_CUE_PATTERN = re.compile(
+    r"(?:按|按照|根据|基于|依据)[^。！？；\n]{0,60}"
+    r"|(?:升序|降序|由高到低|从高到低|由低到高|从低到高)"
+    r"|(?:脚本|程序|配置|人工|自动生成|生成方式|并列|同分)"
+)
+
+
+CN_FONT_ALIASES = {"宋体": "宋体", "SimSun": "宋体", "黑体": "黑体", "SimHei": "黑体"}
+
+
 def local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
@@ -130,6 +150,30 @@ def lint_language(text: str) -> list[Issue]:
     for pattern, message in SCOPE_PATTERNS:
         for match in pattern.finditer(text):
             issues.append(Issue("warning", "SCOPE_NEGATIVE", message, context_for(text, *match.span())))
+
+    for pattern in META_PATTERNS:
+        for match in pattern.finditer(text):
+            issues.append(
+                Issue(
+                    "warning",
+                    "META_DISCOURSE",
+                    "发现元话语。直接陈述研究对象、实验动作、结果或计划。",
+                    context_for(text, *match.span()),
+                )
+            )
+
+    for match in DERIVED_CONTENT_PATTERN.finditer(text):
+        left = max(0, match.start() - 120)
+        right = min(len(text), match.end() + 120)
+        if not GENERATION_CUE_PATTERN.search(text[left:right]):
+            issues.append(
+                Issue(
+                    "warning",
+                    "DERIVED_CONTENT_SOURCE",
+                    "名单、顺序、分组或筛选结果缺少生成依据。说明对象、规则、排列方向和生成方式。",
+                    context_for(text, *match.span()),
+                )
+            )
 
     duplicate_pattern = re.compile(r"([\u4e00-\u9fff]{2,6})\1")
     seen_spans: set[tuple[int, int]] = set()
@@ -218,7 +262,7 @@ def check_default_fonts(styles: ET.Element | None) -> list[Issue]:
     east_asia = w_attr(fonts, "eastAsia")
     ascii_font = w_attr(fonts, "ascii")
     hansi = w_attr(fonts, "hAnsi")
-    if east_asia != "宋体":
+    if CN_FONT_ALIASES.get(east_asia or "") != "宋体":
         issues.append(Issue("error", "DOCX_CN_FONT", f"默认中文字体为“{east_asia or '未设置'}”，要求使用宋体。"))
     if ascii_font != "Times New Roman" or hansi != "Times New Roman":
         issues.append(Issue("error", "DOCX_EN_FONT", "默认英文和数字字体要求使用 Times New Roman。"))
@@ -265,15 +309,37 @@ def check_runs(document: ET.Element) -> list[Issue]:
         if fonts is not None:
             if re.search(r"[\u4e00-\u9fff]", text):
                 font = w_attr(fonts, "eastAsia")
-                if font and font != "宋体" and ("CN_FONT", font) not in seen:
+                theme_font = w_attr(fonts, "eastAsiaTheme")
+                if font and font not in CN_FONT_ALIASES and ("CN_FONT", font) not in seen:
                     seen.add(("CN_FONT", font))
-                    issues.append(Issue("error", "DOCX_CN_FONT", f"发现中文字体“{font}”，要求使用宋体。", text[:40]))
+                    issues.append(Issue("error", "DOCX_CN_FONT", f"发现中文字体“{font}”，只允许宋体或黑体。", text[:40]))
+                if not font and theme_font and ("CN_THEME_FONT", theme_font) not in seen:
+                    seen.add(("CN_THEME_FONT", theme_font))
+                    issues.append(
+                        Issue(
+                            "error",
+                            "DOCX_THEME_FONT",
+                            f"发现中文主题字体“{theme_font}”，请显式设置为宋体或黑体。",
+                            text[:40],
+                        )
+                    )
             if re.search(r"[A-Za-z0-9]", text):
                 font = w_attr(fonts, "ascii") or w_attr(fonts, "hAnsi")
+                theme_font = w_attr(fonts, "asciiTheme") or w_attr(fonts, "hAnsiTheme")
                 if font and font != "Times New Roman" and ("EN_FONT", font) not in seen:
                     seen.add(("EN_FONT", font))
                     issues.append(
                         Issue("error", "DOCX_EN_FONT", f"发现英文或数字字体“{font}”，要求使用 Times New Roman。", text[:40])
+                    )
+                if not font and theme_font and ("EN_THEME_FONT", theme_font) not in seen:
+                    seen.add(("EN_THEME_FONT", theme_font))
+                    issues.append(
+                        Issue(
+                            "error",
+                            "DOCX_THEME_FONT",
+                            f"发现英文或数字主题字体“{theme_font}”，请显式设置为 Times New Roman。",
+                            text[:40],
+                        )
                     )
         color = rpr.find("w:color", NS)
         value = (w_attr(color, "val") or "auto").upper()
@@ -328,6 +394,14 @@ def check_table(table: ET.Element, index: int) -> list[Issue]:
         runs = [run for run in cell.iter(f"{W}r") if any((node.text or "").strip() for node in run.iter(f"{W}t"))]
         if runs and not all(run.find("w:rPr/w:b", NS) is not None for run in runs):
             issues.append(Issue("warning", "TABLE_HEADER_BOLD", f"表 {index} 表头第 {cell_index} 列未显式加粗。"))
+        for run in runs:
+            text = "".join(node.text or "" for node in run.iter(f"{W}t"))
+            if not re.search(r"[\u4e00-\u9fff]", text):
+                continue
+            font = w_attr(run.find("w:rPr/w:rFonts", NS), "eastAsia")
+            if CN_FONT_ALIASES.get(font or "") != "黑体":
+                issues.append(Issue("warning", "TABLE_HEADER_FONT", f"表 {index} 表头第 {cell_index} 列中文未显式使用黑体。"))
+                break
 
     column_count = max((len(row.findall("w:tc", NS)) for row in rows), default=0)
     expected_size = "21" if column_count <= 5 else "18"
