@@ -94,6 +94,26 @@ INFORMAL_RESULT_PATTERNS = [
 ]
 
 
+VAGUE_LABEL_PATTERNS = [
+    re.compile(r"相关(?:内容|工作|情况|问题|方法|数据|结果|指标|设置|因素|方面)"),
+    re.compile(r"(?:有关|相应)(?:内容|情况|工作|问题|方面)"),
+    re.compile(r"(?:这类|该类|此类)(?:情况|问题|内容|工作|方法|结果)"),
+    re.compile(r"(?:某些|一些|部分|若干)(?:情况|问题|内容|方法|数据|样本|结果)"),
+]
+
+
+REFERENCE_REVIEW_PATTERNS = [
+    re.compile(r"(?:^|[。！？；\n])\s*(?:其|该方法|该模型|该结果|上述方法|上述结果|前者|后者|二者)"),
+    re.compile(r"这(?:表明|说明|意味着)|由此可见"),
+    re.compile(r"上表|下图"),
+]
+
+
+NOUN_STACK_PATTERN = re.compile(
+    r"(?:数据集|数据|样本|模型|特征|语义|质量|性能|稳定性|训练|实验|任务|结果|指标|方法|策略|机制|方案|流程|信息量|覆盖|权重|排序|筛选|分类|检测|验证){4,}"
+)
+
+
 HEADING_SENTENCE_PATTERN = re.compile(
     r"^(?:我们|本文|本节|本阶段)|如何|为什么|为何|是否|怎么|哪些|是什么|做了什么|如何推进"
 )
@@ -230,6 +250,58 @@ def lint_markdown_table_headers(text: str) -> list[Issue]:
     return issues
 
 
+def lint_sentence_complexity(text: str) -> list[Issue]:
+    issues: list[Issue] = []
+    in_code_block = False
+    line_start = 0
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            line_start += len(line)
+            continue
+        if (
+            in_code_block
+            or not stripped
+            or stripped.startswith("#")
+            or stripped.startswith("|")
+            or re.match(r"^(?:[-*+]\s|\d+[.)、]\s)", stripped)
+            or MARKDOWN_TABLE_SEPARATOR.match(stripped)
+        ):
+            line_start += len(line)
+            continue
+
+        for sentence_match in re.finditer(r"[^。！？!?]+[。！？!?]?", line):
+            sentence = sentence_match.group(0).strip()
+            if not sentence:
+                continue
+            chinese_length = len(re.findall(r"[\u4e00-\u9fff]", sentence))
+            start = line_start + sentence_match.start()
+            end = line_start + sentence_match.end()
+            if chinese_length > 60:
+                issues.append(
+                    Issue(
+                        "warning",
+                        "LONG_SENTENCE",
+                        f"句子含 {chinese_length} 个汉字。拆分条件、动作、结果或并列内容。",
+                        context_for(text, start, end),
+                    )
+                )
+                continue
+            relation_count = len(re.findall(r"(?:如果|当|在.+?时|由于|因为|因此|从而|通过|基于|同时|以及|并且|但|然而)", sentence))
+            if chinese_length > 45 and (sentence.count("，") >= 3 or relation_count >= 3):
+                issues.append(
+                    Issue(
+                        "warning",
+                        "COMPLEX_SENTENCE",
+                        "句子包含多层条件、动作或关系。保留一个主要判断，并将其余关系拆成独立句子。",
+                        context_for(text, start, end),
+                    )
+                )
+        line_start += len(line)
+    return issues
+
+
 def extract_docx(path: Path) -> tuple[str, dict[str, ET.Element]]:
     with zipfile.ZipFile(path) as archive:
         document = ET.fromstring(archive.read("word/document.xml"))
@@ -287,6 +359,38 @@ def lint_language(text: str) -> list[Issue]:
                 )
             )
 
+    for pattern in VAGUE_LABEL_PATTERNS:
+        for match in pattern.finditer(text):
+            issues.append(
+                Issue(
+                    "warning",
+                    "VAGUE_LABEL",
+                    "发现空泛称呼。写出具体对象、范围、动作、条件或问题名称。",
+                    context_for(text, *match.span()),
+                )
+            )
+
+    for pattern in REFERENCE_REVIEW_PATTERNS:
+        for match in pattern.finditer(text):
+            issues.append(
+                Issue(
+                    "warning",
+                    "REFERENCE_REVIEW",
+                    "人工确认该表达具有唯一且紧邻的指向；存在多个候选对象时重复固定名称。",
+                    context_for(text, *match.span()),
+                )
+            )
+
+    for match in NOUN_STACK_PATTERN.finditer(text):
+        issues.append(
+            Issue(
+                "warning",
+                "NOUN_STACK",
+                "发现连续名词串。明确中心词，并用主谓或动宾关系拆开各概念。",
+                context_for(text, *match.span()),
+            )
+        )
+
     for match in DERIVED_CONTENT_PATTERN.finditer(text):
         left = max(0, match.start() - 120)
         right = min(len(text), match.end() + 120)
@@ -321,6 +425,7 @@ def lint_language(text: str) -> list[Issue]:
     issues.extend(lint_markdown_headings(text))
     issues.extend(lint_markdown_summary_position(text))
     issues.extend(lint_markdown_table_headers(text))
+    issues.extend(lint_sentence_complexity(text))
     return issues
 
 
