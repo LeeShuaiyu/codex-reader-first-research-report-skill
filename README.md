@@ -1,0 +1,208 @@
+# Reader-First Research Report Skill
+
+一个面向中文科研报告的 Codex skill。它根据实验记录、结果表格、代码输出、论文笔记和旧报告，撰写或重构凝练、结果优先、术语稳定且实验细节可复现的周报、月报、阶段报告和专题研究报告。
+
+Skill 名称：`$write-reader-first-research-report`
+
+## 理念
+
+科研报告需要帮助读者快速回答五个问题：
+
+1. 这项工作解决什么问题？
+2. 最重要的结果是什么？
+3. 实验如何完成？
+4. 当前结论覆盖哪些条件？
+5. 下一步准备验证什么？
+
+许多实验记录按照研究者的工作过程展开：先尝试什么、遇到什么问题、修改什么参数、最后得到什么结果。这样的顺序适合保存过程，阅读报告时会增加理解成本。本 skill 会先建立事实清单和术语表，再按照读者的问题重新组织材料。
+
+### 结果优先
+
+报告首先呈现关键结果、比较对象和定量差异。理论放在方法说明中，只保留理解实验设计和结果所需的变量、假设及核心关系。
+
+### 可复现细节集中呈现
+
+语言凝练不等于省略实验条件。数据来源与划分、预处理、模型初始化、训练参数、随机种子、评估指标、模型选择规则、软件环境和复现命令会被集中整理，避免散落在多个段落中。
+
+### 用事实范围表达结论边界
+
+报告直接写明当前证据来自哪些数据集、多少样本和多少次重复实验，再给出下一步验证计划。这样的表达保留了影响结论解释的事实，也让后续工作具有明确目标。
+
+### 术语稳定
+
+每个项目专有概念、实验变量和结果指标都使用固定名称。已有领域术语优先；复杂现象可以用短语准确描述，无需创造新词。英文术语已有自然中文说法时使用中文，模型、数据集和无稳定译名的技术名称保留英文。
+
+### 简洁排版
+
+DOCX 输出采用黑白学术排版：中文宋体，英文和数字 Times New Roman；标题层级简洁；正式结果表使用无底色、无竖线的三线表；图题、表题、公式和编号保持统一。
+
+## 适用场景
+
+- 根据零散实验记录撰写一至三页实验进展；
+- 根据多组实验和图表撰写专题研究报告；
+- 整理研究生月报、项目阶段汇报或组会材料；
+- 重构已有报告，使关键结果前置并补齐复现信息；
+- 统一全文术语、数据比例、指标名称和缩写；
+- 检查二分式转折、消极局限表述、重复词和 DOCX 基础格式。
+
+## 安装
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/LeeShuaiyu/codex-reader-first-research-report-skill.git "$env:USERPROFILE\.codex\skills\write-reader-first-research-report"
+```
+
+### macOS / Linux
+
+```bash
+git clone https://github.com/LeeShuaiyu/codex-reader-first-research-report-skill.git ~/.codex/skills/write-reader-first-research-report
+```
+
+安装后重新打开 Codex，或新建一个任务，使 skill 被重新发现。
+
+## 快速使用
+
+在 Codex 中显式调用：
+
+```text
+使用 $write-reader-first-research-report，根据这些实验记录撰写一份两页以内的实验进展报告。先写关键结果，再集中说明实验设置；缺失信息用待补充项列出。
+```
+
+也可以直接描述任务。材料属于实验记录、研究进展或科研报告时，Codex 可以根据 skill 描述自动调用：
+
+```text
+请把这个文件夹中的结果表、训练配置和旧月报整理成一份本月科研汇报，输出 DOCX。
+```
+
+## 建议提供的材料
+
+输入越完整，报告越接近可复现要求。建议提供：
+
+- 研究目标和需要回答的问题；
+- 数据集来源、版本、样本量和划分；
+- 预处理、筛选和抽样规则；
+- 模型、初始化和预训练权重；
+- 损失函数、优化器、学习率、batch size 和 epoch；
+- 随机种子、重复次数和模型选择规则；
+- 对比方法、消融设置和公平比较条件；
+- 原始结果表、均值、标准差、图像和日志；
+- 软件环境、硬件、配置文件和运行命令；
+- 希望控制的篇幅、报告类型和输出格式。
+
+材料缺少关键字段时，skill 会保留 `[待补充：具体字段]`，并在交付时汇总缺项，不会用常见默认值补造实验设置。
+
+## 常用调用示例
+
+### 撰写短篇实验进展
+
+```text
+使用 $write-reader-first-research-report，根据 experiment.md 和 results.csv 撰写实验进展。控制在 1500 字以内，正文包含阶段结论、关键结果、实验设置、结果分析和下一步工作。
+```
+
+### 撰写月度汇报
+
+```text
+使用 $write-reader-first-research-report，读取本月的论文笔记、实验表格和上月月报，撰写本月研究生月度汇报。保持术语一致，事务性内容从简。
+```
+
+### 重构已有报告
+
+```text
+使用 $write-reader-first-research-report 重构 report.docx。保留所有可核对事实和数据，把关键结果移到前面，把实验参数集中到“实验设置”，输出修订后的 DOCX。
+```
+
+### 只做语言和术语审校
+
+```text
+使用 $write-reader-first-research-report 审校 draft.md。检查二分式转折、近义词摇摆、自创词、重复结论和证据范围表述；不要改变实验事实。
+```
+
+## 工作流程
+
+Skill 按以下流程处理材料：
+
+1. 提取可追溯的事实、数字、实验条件和缺项；
+2. 为方法、变量、数据集和指标建立术语表；
+3. 按读者最关心的问题选择报告结构；
+4. 先写定量结果，再写实验设置和必要解释；
+5. 把复现字段集中为紧凑段落或实验设置表；
+6. 用当前证据范围和下一步行动表达结论边界；
+7. 检查事实、术语、语言、编号和格式；
+8. 输出 DOCX 时渲染全部页面并进行视觉检查。
+
+详细规则见 [`references/style-spec.md`](references/style-spec.md)，结构选择见 [`references/report-structures.md`](references/report-structures.md)。
+
+## 报告检查脚本
+
+仓库包含一个无第三方依赖的检查脚本 [`scripts/report_lint.py`](scripts/report_lint.py)，支持 UTF-8 文本、Markdown 和 DOCX。
+
+### 基础检查
+
+```bash
+python scripts/report_lint.py report.md
+```
+
+### 检查 DOCX 和术语
+
+先复制 [`references/terms-example.json`](references/terms-example.json)，填写项目术语：
+
+```json
+[
+  {
+    "canonical": "结构化无语义预热",
+    "allowed": ["SNS预热"],
+    "avoid": ["结构化预热", "结构噪声预热"]
+  }
+]
+```
+
+然后运行：
+
+```bash
+python scripts/report_lint.py report.docx --terms terms.json
+```
+
+严格模式会让警告也返回非零退出码，适合放入自动化流程：
+
+```bash
+python scripts/report_lint.py report.docx --terms terms.json --strict
+```
+
+脚本检查内容包括：
+
+- 禁用的二分式转折；
+- 需要改为“事实范围 + 后续行动”的表达；
+- 连续重复词和待补充字段；
+- 术语变体及缩写定义顺序；
+- A4 页面和规定页边距；
+- 宋体、Times New Roman 和黑色文字；
+- 三线表顶线、表头线、底线、竖线和底色。
+
+脚本负责确定性检查，无法代替事实核对、术语判断和全文逻辑审阅。
+
+## 目录结构
+
+```text
+.
+├── SKILL.md                         # Skill 入口与执行流程
+├── agents/
+│   └── openai.yaml                  # Codex 界面元数据
+├── references/
+│   ├── style-spec.md                # 写作、术语、实验和 DOCX 格式规范
+│   ├── report-structures.md         # 短报告、专题报告和月报结构
+│   └── terms-example.json           # 术语表模板
+└── scripts/
+    └── report_lint.py               # 文本和 DOCX 检查脚本
+```
+
+## 设计边界
+
+- Skill 只依据用户提供或明确授权获取的材料写作，不补造实验事实。
+- 自动检查可以发现固定模式，领域术语是否自然仍需要结合具体研究判断。
+- 结果优先用于降低阅读成本，完整实验细节仍会保留在实验设置中。
+- 理论说明以理解实验和结果为目标；论文级完整推导适合使用专门的论文写作流程。
+
+## 维护
+
+修改 `SKILL.md` 或参考规范后，可运行 Codex 的 skill 校验工具检查目录和 YAML 元数据。修改检查脚本后，建议至少运行一组应当报错的文本和一组应当通过的文本。
