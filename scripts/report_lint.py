@@ -52,6 +52,11 @@ BANNED_PATTERNS = [
         re.compile(r"重点不在[^。！？；\n]{0,80}(?:，|,)?\s*而在"),
         "使用了禁用的二分转折。直接写出重点内容。",
     ),
+    (
+        "BANNED_PERCENTAGE_POINT",
+        re.compile(r"百分点"),
+        "不使用“百分点”。直接报告比较前后的百分数；确需差值时定义计算方式与单位。",
+    ),
 ]
 
 
@@ -79,6 +84,27 @@ META_PATTERNS = [
     re.compile(r"下文将|接下来(?:将|介绍|说明|讨论)|下面(?:将|介绍|说明|讨论)"),
     re.compile(r"为了便于理解[^。！？；\n]{0,20}(?:先|首先)"),
 ]
+
+
+INFORMAL_RESULT_PATTERNS = [
+    re.compile(r"(?:[一二三四五六七八九十百\d]+)次均不(?:下降|降低|变差)"),
+    re.compile(r"(?:没有|没|未)(?:有)?掉点|掉点"),
+    re.compile(r"(?:效果|表现)(?:很|非常|特别)?好"),
+    re.compile(r"(?:全部|全都|都)(?:有)?提升"),
+]
+
+
+HEADING_SENTENCE_PATTERN = re.compile(
+    r"^(?:我们|本文|本节|本阶段)|如何|为什么|为何|是否|怎么|哪些|是什么|做了什么|如何推进"
+)
+HEADING_END_PUNCTUATION = re.compile(r"[。！？!?；;：:]$")
+MARKDOWN_TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+VAGUE_TABLE_HEADER_PATTERN = re.compile(
+    r"^(?:实验)?(?:结果|表现|说明|情况|变化|结论|趋势)$|^(?:是否|有无)|^(?:提升|下降|变化)情况$"
+)
+NARRATIVE_TABLE_CELL_PATTERN = re.compile(
+    r"(?:[一二三四五六七八九十百\d]+)次均不(?:下降|降低|变差)|(?:效果|表现)(?:很|非常|特别)?好"
+)
 
 
 DERIVED_CONTENT_PATTERN = re.compile(
@@ -114,6 +140,66 @@ def context_for(text: str, start: int, end: int) -> str:
     right = min(len(text), end + 28)
     snippet = re.sub(r"\s+", " ", text[left:right]).strip()
     return f"第 {line} 行：{snippet}"
+
+
+def clean_heading(value: str) -> str:
+    value = re.sub(r"[`*_~]", "", value)
+    value = re.sub(r"^\s*\d+(?:\.\d+)*[.、]?\s*", "", value)
+    return value.strip()
+
+
+def lint_markdown_headings(text: str) -> list[Issue]:
+    issues: list[Issue] = []
+    for match in re.finditer(r"(?m)^(#{2,6})[ \t]+(.+?)\s*$", text):
+        heading = clean_heading(match.group(2))
+        compact = re.sub(r"\s+", "", heading)
+        if len(compact) > 18:
+            issues.append(
+                Issue(
+                    "warning",
+                    "HEADING_TOO_LONG",
+                    "章节标题过长。改为简短的主题型名词短语。",
+                    context_for(text, *match.span()),
+                )
+            )
+        if HEADING_END_PUNCTUATION.search(heading) or HEADING_SENTENCE_PATTERN.search(heading):
+            issues.append(
+                Issue(
+                    "warning",
+                    "HEADING_STYLE",
+                    "章节标题包含句子、问句或写作动作。改为主题型名词短语。",
+                    context_for(text, *match.span()),
+                )
+            )
+    return issues
+
+
+def split_markdown_row(line: str) -> list[str]:
+    value = line.strip()
+    if value.startswith("|"):
+        value = value[1:]
+    if value.endswith("|"):
+        value = value[:-1]
+    return [re.sub(r"[`*_~]", "", cell).strip() for cell in value.split("|")]
+
+
+def lint_markdown_table_headers(text: str) -> list[Issue]:
+    issues: list[Issue] = []
+    lines = text.splitlines()
+    for index in range(len(lines) - 1):
+        if "|" not in lines[index] or not MARKDOWN_TABLE_SEPARATOR.match(lines[index + 1]):
+            continue
+        for column_index, header in enumerate(split_markdown_row(lines[index]), start=1):
+            if VAGUE_TABLE_HEADER_PATTERN.search(header):
+                issues.append(
+                    Issue(
+                        "warning",
+                        "TABLE_HEADER_VAGUE",
+                        f"第 {column_index} 列列名“{header}”含义宽泛。写明变量、指标、统计方式或单位。",
+                        f"第 {index + 1} 行：{lines[index].strip()}",
+                    )
+                )
+    return issues
 
 
 def extract_docx(path: Path) -> tuple[str, dict[str, ET.Element]]:
@@ -162,6 +248,17 @@ def lint_language(text: str) -> list[Issue]:
                 )
             )
 
+    for pattern in INFORMAL_RESULT_PATTERNS:
+        for match in pattern.finditer(text):
+            issues.append(
+                Issue(
+                    "warning",
+                    "INFORMAL_RESULT",
+                    "发现口语化或判断范围不清的结果表述。改写为指标、数值、统计量或有定义的计数。",
+                    context_for(text, *match.span()),
+                )
+            )
+
     for match in DERIVED_CONTENT_PATTERN.finditer(text):
         left = max(0, match.start() - 120)
         right = min(len(text), match.end() + 120)
@@ -193,6 +290,8 @@ def lint_language(text: str) -> list[Issue]:
 
     for match in re.finditer(r"\[待补充：[^\]]+\]", text):
         issues.append(Issue("warning", "MISSING_FIELD", "报告仍包含待补充字段。", context_for(text, *match.span())))
+    issues.extend(lint_markdown_headings(text))
+    issues.extend(lint_markdown_table_headers(text))
     return issues
 
 
@@ -391,6 +490,15 @@ def check_table(table: ET.Element, index: int) -> list[Issue]:
         issues.append(Issue("error", "TABLE_BOTTOM_RULE", f"表 {index} 缺少底线。"))
 
     for cell_index, cell in enumerate(first_cells, start=1):
+        header_text = re.sub(r"\s+", "", "".join(node.text or "" for node in cell.iter(f"{W}t")))
+        if VAGUE_TABLE_HEADER_PATTERN.search(header_text):
+            issues.append(
+                Issue(
+                    "warning",
+                    "TABLE_HEADER_VAGUE",
+                    f"表 {index} 第 {cell_index} 列列名“{header_text}”含义宽泛。写明变量、指标、统计方式或单位。",
+                )
+            )
         runs = [run for run in cell.iter(f"{W}r") if any((node.text or "").strip() for node in run.iter(f"{W}t"))]
         if runs and not all(run.find("w:rPr/w:b", NS) is not None for run in runs):
             issues.append(Issue("warning", "TABLE_HEADER_BOLD", f"表 {index} 表头第 {cell_index} 列未显式加粗。"))
@@ -402,6 +510,19 @@ def check_table(table: ET.Element, index: int) -> list[Issue]:
             if CN_FONT_ALIASES.get(font or "") != "黑体":
                 issues.append(Issue("warning", "TABLE_HEADER_FONT", f"表 {index} 表头第 {cell_index} 列中文未显式使用黑体。"))
                 break
+
+    for row_index, row in enumerate(rows[1:], start=2):
+        for cell_index, cell in enumerate(row.findall("w:tc", NS), start=1):
+            cell_text = re.sub(r"\s+", "", "".join(node.text or "" for node in cell.iter(f"{W}t")))
+            if NARRATIVE_TABLE_CELL_PATTERN.search(cell_text):
+                issues.append(
+                    Issue(
+                        "warning",
+                        "TABLE_NARRATIVE_CELL",
+                        f"表 {index} 第 {row_index} 行第 {cell_index} 列使用了叙述性结果。改为数值或有定义的短标签。",
+                        cell_text[:40],
+                    )
+                )
 
     column_count = max((len(row.findall("w:tc", NS)) for row in rows), default=0)
     expected_size = "21" if column_count <= 5 else "18"
