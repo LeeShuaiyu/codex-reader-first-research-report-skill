@@ -155,7 +155,8 @@ Skill 按以下流程处理材料：
 11. 用当前证据范围和下一步行动表达结论边界；
 12. 在正文末尾撰写只复述已有内容的总结；
 13. 检查事实、术语、语言、编号和格式；
-14. 输出 DOCX 时渲染全部页面并进行视觉检查。
+14. 按 `references/reader-audit.md` 执行独立读者审查并修订理解障碍；
+15. 输出 DOCX 时渲染全部页面并进行视觉检查。
 
 详细规则见 [`references/style-spec.md`](references/style-spec.md)，结构选择见 [`references/report-structures.md`](references/report-structures.md)。
 
@@ -222,6 +223,7 @@ python scripts/report_lint.py report.docx --terms terms.json --strict
 │   └── openai.yaml                  # Codex 界面元数据
 ├── references/
 │   ├── style-spec.md                # 写作、术语、实验和 DOCX 格式规范
+│   ├── reader-audit.md              # 独立读者审查与问题分级
 │   ├── report-structures.md         # 短报告、专题报告和月报结构
 │   └── terms-example.json           # 术语表模板
 └── scripts/

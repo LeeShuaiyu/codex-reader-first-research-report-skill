@@ -1,4 +1,4 @@
 interface:
   display_name: "读者导向科研报告"
-  short_description: "根据已有材料撰写信息顺序清晰、总结后置且可复现的科研报告"
-  default_prompt: "使用 $write-reader-first-research-report 根据已有材料撰写一份信息顺序清晰、总结后置且实验细节可复现的科研报告。"
+  short_description: "撰写指代明确、总结后置并经独立读者审查的科研报告"
+  default_prompt: "使用 $write-reader-first-research-report 根据已有材料撰写一份信息顺序清晰、称呼具体、实验细节可复现且通过独立读者审查的科研报告。"
